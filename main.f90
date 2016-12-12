@@ -2,37 +2,51 @@
 
       implicit none
 
-      integer(4),       public, parameter   :: rk = selected_real_kind(8)
+      integer(4),       public, parameter   :: rk = kind(1.0d0)
       integer(4),       public, parameter   :: npolar = 16
-      integer(4),       public, parameter   :: nalpha = 200
-      integer(4),       public, parameter   :: pmax   = 6
+      integer(4),       public, parameter   :: nalpha = 1000
+      integer(4),       public, parameter   :: pmax   = 1 ! 6
       integer(4),       public, parameter   :: cmax   = 4
-      integer(4),       public, parameter   :: smax   = 200
+      integer(4),       public, parameter   :: smax   = 500
+      integer(4),       public, parameter   :: maxs   = 5
+      integer(4),       public              :: sweeps
       real(kind=rk),    public              :: pi
       real(kind=rk),    public              :: mu(npolar)
       real(kind=rk),    public              :: wgt(npolar)
-      real(kind=rk),    public              :: c(1:cmax)=(/0.8_rk,0.9_rk,0.99_rk,0.999999_rk/)
+      real(kind=rk),    public              :: c(1:cmax)=(/0.8_rk,0.9_rk,0.99_rk,0.9999_rk/)
       real(kind=rk),    public              :: rho(smax,cmax,pmax)
       complex(kind=rk), public, allocatable :: um(:,:)
+      character(2),     public              :: sol
 
     end module global_data
 
     program fourier_analysis
 
-      use global_data, only: rk, pi
+      use global_data, only: rk, maxs, sweeps, pi, sol
 
       implicit none
 
-      integer(4),    parameter :: sweeps=1
+      integer(4) :: i
+      integer(4) :: j
 
       pi=2.0_rk*acos(0.0_rk)
 
-      call spectral_radius(sweeps)
-      call plot
+      do j=1,2
+        if (j == 1) then
+          sol='DD'
+        else
+          sol='SC'
+        endif
+        do i=1,maxs
+          sweeps=i
+          call spectral_radius
+          call plot
+        enddo
+      enddo
 
     contains
 
-    subroutine spectral_radius(sweeps)
+    subroutine spectral_radius
 
       use global_data, only: rk, pmax, cmax, smax, c, rho
 
@@ -41,19 +55,18 @@
       integer(4)                 :: p
       integer(4)                 :: r
       integer(4)                 :: s
-      integer(4),    intent(in)  :: sweeps
-      real(kind=rk)              :: sigt_h
-      real(kind=rk)              :: del(smax,pmax)
+      real(kind=rk)              :: sigt_h(smax,pmax)
+      real(kind=rk)              :: del
 
       call set_quadrature
-      call set_del(del)
+      call set_sigt(sigt_h)
 
       rho=0.0_rk
       do p=1,pmax
         do r=1,cmax
           do s=1,smax
-            sigt_h=del(s,p)/real(p,rk)
-            call get_rho(p, sweeps, del(s,p), c(r), sigt_h, rho(s,r,p))
+            del=sigt_h(s,p)*real(p,rk)
+            call get_rho(p, del, c(r), sigt_h(s,p), rho(s,r,p))
           enddo
         enddo
       enddo
@@ -109,7 +122,7 @@
 
     end subroutine set_quadrature
 
-    subroutine set_del(del)
+    subroutine set_sigt(sigt_h)
 
       use global_data, only: rk, pmax, smax
 
@@ -119,49 +132,50 @@
       integer(4)                 :: s
       integer(4),    parameter   :: sm1=100
       real(kind=rk)              :: ds
-      real(kind=rk), intent(out) :: del(smax,pmax)
+      real(kind=rk), intent(out) :: sigt_h(smax,pmax)
 
-      del=0.0_rk
+      if (sm1 >= smax) stop ' Trouble in set_sigt, sm1 >= smax.'
+      sigt_h=0.0_rk
       do p=1,pmax
         ds=log(100.0_rk)/real(smax-sm1,rk)
         do s=1,smax 
           if (s <= sm1) then
-            del(s,p)=(1.0_rk/real(sm1,rk))*real(s,rk)
+            sigt_h(s,p)=(1.0_rk/real(sm1,rk))*real(s,rk)
           else
-            del(s,p)=exp(ds*real(s-sm1,rk))
+            sigt_h(s,p)=exp(ds*real(s-sm1,rk))
           endif
         enddo
       enddo
 
-    end subroutine set_del
+    end subroutine set_sigt
 
-    subroutine get_rho(p, sweeps, del, c, sigt_h, rho)
+    subroutine get_rho(p, del, c, sigt_h, rho)
 
       use global_data, only: rk, nalpha, pi
 
       implicit none
 
-      integer(4)                 :: i
       integer(4),    intent(in)  :: p
-      integer(4),    intent(in)  :: sweeps
       real(kind=rk)              :: alpha
+      real(kind=rk)              :: eps
       real(kind=rk)              :: omega
       real(kind=rk), intent(in)  :: del
       real(kind=rk), intent(in)  :: sigt_h
       real(kind=rk), intent(in)  :: c
       real(kind=rk), intent(out) :: rho
 
-      alpha=0.0_rk
-      do i=1,nalpha
-        alpha=(pi/del)*(real(i,rk)/real(nalpha,rk))
-        call buildm(p, sweeps, sigt_h, c, del, alpha)
+      eps=epsilon(0.0_rk)
+      alpha=eps
+      do while(alpha*del <= pi)
+        call buildm(p, sigt_h, c, del, alpha)
         call get_eigenvalue(p,omega)
         rho=max(rho,omega)
+        alpha=alpha+((pi-eps)/del)/nalpha
       enddo
 
     end subroutine get_rho
 
-    subroutine buildm(p, sweeps, sigt_h, c, del, alpha)
+    subroutine buildm(p, sigt_h, c, del, alpha)
 
       use global_data, only: rk, npolar, mu, um
 
@@ -169,7 +183,6 @@
 
       integer(4)                   :: n
       integer(4),       intent(in) :: p
-      integer(4),       intent(in) :: sweeps
       real(kind=rk)                :: d
       real(kind=rk)                :: s
       real(kind=rk)                :: diffco
@@ -188,14 +201,24 @@
       allocate(um(p,p))
       um=(0.0_rk,0.0_rk)
 
-      do n=1,npolar/2
-        tau=sigt_h/mu(n)
+      do n=1,npolar
+        tau=sigt_h/abs(mu(n))
         call get_beta(tau, beta)
-        d=(1.0_rk-beta)/2.0_rk
-        s=(1.0_rk+beta)/2.0_rk
+        if (mu(n) > 0.0_rk) then
+          d=(1.0_rk-beta)/2.0_rk
+          s=(1.0_rk+beta)/2.0_rk
+        else
+          s=(1.0_rk-beta)/2.0_rk
+          d=(1.0_rk+beta)/2.0_rk
+        endif
         call setmat(p, alpha, del, d, s, am)
-        d=-1.0_rk/tau
-        s= 1.0_rk/tau
+        if (mu(n) > 0.0_rk) then
+          d=-1.0_rk/tau
+          s= 1.0_rk/tau
+        else
+          s=-1.0_rk/tau
+          d= 1.0_rk/tau
+        endif
         call setmat(p, alpha, del, d, s, bm)
         bm=am+bm
         call invcmat(p, bm)
@@ -206,13 +229,13 @@
       diffco=1.0_rk/(3.0_rk*del)
       fhat=c*sigt_h/(2.0_rk*diffco*(1.0_rk-cos(alpha*del))+(1.0_rk-c)*del)
 
-      call fnlum(p, sweeps, fhat)
+      call fnlum(p, fhat)
 
     end subroutine buildm
 
     subroutine get_beta(tau, beta)
 
-      use global_data, only: rk
+      use global_data, only: rk, sol
 
       implicit none
 
@@ -230,6 +253,7 @@
       else
         beta=1.0_rk/tanh(tau/2.0_rk)-2.0_rk/tau
       endif
+      if (sol == 'DD') beta=0.0_rk
 
     end subroutine get_beta
 
@@ -241,12 +265,11 @@
 
       integer(4)                    :: i
       integer(4),       intent(in)  :: m
-      real(kind=rk)                 :: re
-      real(kind=rk)                 :: im
       real(kind=rk),    intent(in)  :: alpha
       real(kind=rk),    intent(in)  :: del
       real(kind=rk),    intent(in)  :: d
       real(kind=rk),    intent(in)  :: s
+      complex(kind=rk)              :: arg
       complex(kind=rk), intent(out) :: a(m,m)
 
       a=(0.0_rk,0.0_rk)
@@ -256,9 +279,8 @@
       do i=1,m-1
         a(i,i+1)=s
       enddo
-      re=s*cos(alpha*del)
-      im=s*sin(alpha*del)
-      a(m,1)=a(m,1)+cmplx(re,im,rk)
+      arg=cmplx(0.0_rk,alpha*del,rk)
+      a(m,1)=a(m,1)+s*exp(arg)
 
     end subroutine setmat
 
@@ -298,42 +320,44 @@
 
       do i=1,m
         do j=1,m
-          um(i,j)=um(i,j)+c*wgt(n)*ab(i,j)
+          um(i,j)=um(i,j)+0.5_rk*c*wgt(n)*ab(i,j)
         enddo
       enddo
 
     end subroutine addum
 
-    subroutine fnlum(m, sweeps, fhat)
+    subroutine fnlum(m, fhat)
 
-      use global_data, only: rk, um
+      use global_data, only: rk, sweeps, um
 
       implicit none
 
-      integer(4)                   :: i,j
-      integer(4)                   :: s
+      integer(4)                   :: i
       integer(4),       intent(in) :: m
-      integer(4),       intent(in) :: sweeps
       real(kind=rk),    intent(in) :: fhat
+      complex(kind=rk)             :: one(m,m)
+      complex(kind=rk)             :: eye(m,m)
+      complex(kind=rk)             :: um0(m,m)
       complex(kind=rk)             :: um1(m,m)
-      complex(kind=rk)             :: ums(m,m)
-      complex(kind=rk)             :: fm (m,m)
 
-      um1=(1.0_rk,0.0_rk)
-      do i=1,m
-        do j=1,m
-          um(i,j)=um(i,j)+fhat*m*(um(i,j)-1.0_rk)
+      one=(1.0_rk,0.0_rk)
+
+      if (sweeps == 1) then
+        eye=(0.0_rk,0.0_rk)
+        do i=1,m
+          eye(i,i)=(1.0_rk,0.0_rk)
         enddo
-      enddo
-      !um=um+fhat*(um-1.0_rk)
-
-      !ums=um
-      !do s=1,sweeps-1
-      !  if (s == sweeps-1) um1=ums
-      !  ums=MATMUL(um,ums)
-      !enddo
-      !fm=fhat !*(1.0_rk,0.0_rk)
-      !um=ums+MATMUL(fm,ums)-MATMUL(fm,um1)
+        um=um+fhat*MATMUL(one,um-eye)
+      else
+        i=1
+        um0=um
+        do while (i < sweeps)
+          um1=um
+          um=MATMUL(um0,um)
+          i=i+1
+        enddo
+        um=um+fhat*MATMUL(one,um-um1)
+      endif
 
     end subroutine fnlum
 
@@ -343,6 +367,7 @@
 
       implicit none
 
+      integer(4)                    :: i
       integer(4),       intent(in)  :: m
       integer(4)                    :: info
       real(kind=rk)                 :: rw(2*m)
@@ -356,13 +381,16 @@
 
       call zgeev(jobvl, jobvr, m, um, m, e, vl, 1, vr, 1, w, 2*m, rw, info)
       if (info /= 0) stop ' Trouble with finding matrix eigenvalues.'
-      omega=maxval(abs(real(e)))
+      omega=0.0_rk
+      do i=1,m
+        omega=max(omega,abs(e(i)))
+      enddo
 
     end subroutine get_eigenvalue
 
     subroutine plot
 
-      use global_data, only: rk, pmax, cmax, smax, rho
+      use global_data, only: rk, pmax, cmax, smax, sweeps, rho, sol
 
       implicit none
 
@@ -371,25 +399,28 @@
       integer(4)                :: k
       integer(4)                :: dun=1
       integer(4)                :: pun=2
-      real(kind=rk)             :: del(smax,pmax)
+      real(kind=rk)             :: sigt_h(smax,pmax)
       character(1)              :: p
+      character(1)              :: s
       character(2)              :: cols
       character(13)             :: datafile
       character(9)              :: plotfile
       character(10)             :: postfile
       character(132)            :: datfmt 
 
-      call set_del(del)
+      call set_sigt(sigt_h)
 
       write(cols,'(i2)') 1+cmax
       write(datfmt,'(a)') '(' // trim(adjustl(cols)) // '(es12.5))'
 
       do k=1,pmax
         write(p,'(i1)') k
-        write(datafile,'(a)') 'result-p' // trim(adjustl(p)) // '.dat'
+        write(s,'(i1)') sweeps
+        write(datafile,'(a)') 'result-p' // trim(adjustl(p)) // &
+                                    '-s' // trim(adjustl(s)) // '-' // sol // '.dat'
         open(unit=dun,file=datafile,action='write',status='unknown')
         do i=1,smax
-          write(dun,datfmt) del(i,k),(rho(i,j,k),j=1,cmax)
+          write(dun,datfmt) sigt_h(i,k),(rho(i,j,k),j=1,cmax)
         enddo
         close(dun)
         write(plotfile,'(a)') 'plot-p' // trim(adjustl(p)) // '.p'
@@ -401,15 +432,15 @@
         write(pun,'(a)') 'unset label                            # remove any previous labels'
         write(pun,'(a)') 'set xtic auto                          # set xtics automatically'
         write(pun,'(a)') 'set ytic auto                          # set ytics automatically'
-        write(pun,'(a)') 'set title "Step Characteristics, p = 1"'
+        write(pun,'(a)') 'set title "' // sol // ', p = ' // p // ', s = ' // s // '"'
         write(pun,'(a)') 'set xlabel "{/Symbol D} (mfp)" enhanced'
         write(pun,'(a)') 'set ylabel "{/Symbol r}" enhanced'
         write(pun,'(a)') '# set key 0.01,100'
         write(pun,'(a)') 'set yr [0:1]'
-        write(pun,'(a)') 'plot    "' // datafile // '" using 1:2 title "c=0.8"  with linespoints , \'
-        write(pun,'(a)') '        "' // datafile // '" using 1:3 title "c=0.9"  with linespoints , \'
-        write(pun,'(a)') '        "' // datafile // '" using 1:4 title "c=0.99" with linespoints , \'
-        write(pun,'(a)') '        "' // datafile // '" using 1:5 title "c=1.00" with linespoints'
+        write(pun,'(a)') 'plot    "' // datafile // '" using 1:2 title "c=0.8"  with lines , \'
+        write(pun,'(a)') '        "' // datafile // '" using 1:3 title "c=0.9"  with lines , \'
+        write(pun,'(a)') '        "' // datafile // '" using 1:4 title "c=0.99" with lines , \'
+        write(pun,'(a)') '        "' // datafile // '" using 1:5 title "c=1.00" with lines'
         write(pun,'(a)') 'set size 1.0, 0.6'
         write(pun,'(a)') 'set terminal postscript portrait enhanced color dashed lw 1 "Helvetica" 14'
         write(pun,'(a)') 'set output "' // postfile  // '"'
