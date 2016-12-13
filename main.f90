@@ -5,7 +5,7 @@
       integer(4),       public, parameter   :: rk = kind(1.0d0)
       integer(4),       public, parameter   :: npolar = 16
       integer(4),       public, parameter   :: nalpha = 1000
-      integer(4),       public, parameter   :: pmax   = 1 ! 6
+      integer(4),       public, parameter   :: pmax   = 6
       integer(4),       public, parameter   :: cmax   = 4
       integer(4),       public, parameter   :: smax   = 500
       integer(4),       public, parameter   :: maxs   = 5
@@ -403,9 +403,10 @@
       character(1)              :: p
       character(1)              :: s
       character(2)              :: cols
-      character(13)             :: datafile
-      character(9)              :: plotfile
-      character(10)             :: postfile
+      character(9)              :: caserun
+      character(19)             :: datafile
+      character(15)             :: plotfile
+      character(17)             :: pdf_file
       character(132)            :: datfmt 
 
       call set_sigt(sigt_h)
@@ -416,15 +417,15 @@
       do k=1,pmax
         write(p,'(i1)') k
         write(s,'(i1)') sweeps
-        write(datafile,'(a)') 'result-p' // trim(adjustl(p)) // &
-                                    '-s' // trim(adjustl(s)) // '-' // sol // '.dat'
+        write(caserun,'(a)') '-p' // trim(adjustl(p)) // '-s' // trim(adjustl(s)) // '-' // sol
+        write(datafile,'(a)') 'result' // trim(adjustl(caserun)) // '.dat'
         open(unit=dun,file=datafile,action='write',status='unknown')
         do i=1,smax
           write(dun,datfmt) sigt_h(i,k),(rho(i,j,k),j=1,cmax)
         enddo
         close(dun)
-        write(plotfile,'(a)') 'plot-p' // trim(adjustl(p)) // '.p'
-        write(postfile,'(a)') 'plot-p' // trim(adjustl(p)) // '.ps'
+        write(plotfile,'(a)') 'plot' // trim(adjustl(caserun)) // '.p'
+        write(pdf_file,'(a)') 'plot' // trim(adjustl(caserun)) // '.pdf'
         open(unit=pun,file=plotfile,action='write',status='unknown')
         write(pun,'(a)') '# Gnuplot script file for plotting data'
         write(pun,'(a)') 'set autoscale                          # scale axes automatically'
@@ -435,18 +436,15 @@
         write(pun,'(a)') 'set title "' // sol // ', p = ' // p // ', s = ' // s // '"'
         write(pun,'(a)') 'set xlabel "{/Symbol D} (mfp)" enhanced'
         write(pun,'(a)') 'set ylabel "{/Symbol r}" enhanced'
-        write(pun,'(a)') '# set key 0.01,100'
         write(pun,'(a)') 'set yr [0:1]'
         write(pun,'(a)') 'plot    "' // datafile // '" using 1:2 title "c=0.8"  with lines , \'
         write(pun,'(a)') '        "' // datafile // '" using 1:3 title "c=0.9"  with lines , \'
         write(pun,'(a)') '        "' // datafile // '" using 1:4 title "c=0.99" with lines , \'
         write(pun,'(a)') '        "' // datafile // '" using 1:5 title "c=1.00" with lines'
-        write(pun,'(a)') 'set size 1.0, 0.6'
-        write(pun,'(a)') 'set terminal postscript portrait enhanced color dashed lw 1 "Helvetica" 14'
-        write(pun,'(a)') 'set output "' // postfile  // '"'
+        write(pun,'(a)') 'set terminal pdfcairo enhanced color dashed'
+        write(pun,'(a)') 'set output "' // pdf_file  // '"'
         write(pun,'(a)') 'replot'
         write(pun,'(a)') 'set terminal x11'
-        write(pun,'(a)') 'set size 1,1'
         close(pun)
       enddo
 
