@@ -232,7 +232,7 @@
         ab=MATMUL(bm,am)
         ab=ab+eye
         call invcmat(p, ab)
-        call addum(n, p, c, ab, um)
+        call addum(n, p, c, ab)
         if (sol == 'LD' .or. sol == 'LC') then
           d=3.0_rk/tau
           call setmat(p, alpha, del, d, d, cm)
