@@ -181,6 +181,7 @@
 
       implicit none
 
+      integer(4)                   :: i 
       integer(4)                   :: n
       integer(4),       intent(in) :: p
       real(kind=rk)                :: d
@@ -193,13 +194,20 @@
       real(kind=rk),    intent(in) :: c
       real(kind=rk),    intent(in) :: del
       real(kind=rk),    intent(in) :: alpha
-      complex(kind=rk)             :: am(p,p)
-      complex(kind=rk)             :: bm(p,p)
-      complex(kind=rk)             :: ab(p,p)
+      complex(kind=rk)             :: am (p,p)
+      complex(kind=rk)             :: bm (p,p)
+      complex(kind=rk)             :: cm (p,p)
+      complex(kind=rk)             :: ab (p,p)
+      complex(kind=rk)             :: eye(p,p)
 
       if (allocated(um)) deallocate(um)
       allocate(um(p,p))
       um=(0.0_rk,0.0_rk)
+
+      eye=(0.0_rk,0.0_rk)
+      do i=1,p
+        eye(i,i)=(1.0_rk,0.0_rk)
+      enddo 
 
       do n=1,npolar
         tau=sigt_h/abs(mu(n))
@@ -212,6 +220,7 @@
           d=(1.0_rk+beta)/2.0_rk
         endif
         call setmat(p, alpha, del, d, s, am)
+        call invcmat(p, am)
         if (mu(n) > 0.0_rk) then
           d=-1.0_rk/tau
           s= 1.0_rk/tau
@@ -220,10 +229,14 @@
           d= 1.0_rk/tau
         endif
         call setmat(p, alpha, del, d, s, bm)
-        bm=am+bm
-        call invcmat(p, bm)
-        ab=MATMUL(am,bm)
-        call addum(n, p, c, ab)
+        ab=MATMUL(bm,am)
+        ab=ab+eye
+        call invcmat(p, ab)
+        call addum(n, p, c, ab, um)
+        if (sol == 'LD' .or. sol == 'LC') then
+          d=3.0_rk/tau
+          call setmat(p, alpha, del, d, d, cm)
+        endif
       enddo
 
       diffco=1.0_rk/(3.0_rk*del)
@@ -245,15 +258,21 @@
       real(kind=rk), intent(in)  :: tau
       real(kind=rk), intent(out) :: beta
 
-      if (tau < 0.01_rk) then
-        tau3=tau *tau*tau
-        tau5=tau3*tau*tau
-        tau7=tau5*tau*tau
-        beta=tau/6.0_rk-tau3/360.0_rk+tau5/15120.0_rk-tau7/604800.0_rk
+      if (sol == 'DD') then
+        beta=0.0_rk
+      elseif (sol == 'LD') then
+        beta=1.0_rk
       else
-        beta=1.0_rk/tanh(tau/2.0_rk)-2.0_rk/tau
+        if (tau < 0.01_rk) then
+          tau3=tau *tau*tau
+          tau5=tau3*tau*tau
+          tau7=tau5*tau*tau
+          beta=tau/6.0_rk-tau3/360.0_rk+tau5/15120.0_rk-tau7/604800.0_rk
+        else
+          beta=1.0_rk/tanh(tau/2.0_rk)-2.0_rk/tau
+        endif
+        if (sol == 'LC') beta=tau*beta/(tau-6.0_rk*beta)
       endif
-      if (sol == 'DD') beta=0.0_rk
 
     end subroutine get_beta
 
