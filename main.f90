@@ -2,21 +2,22 @@
 
       implicit none
 
-      integer(4),       public, parameter   :: rk = kind(1.0d0)
-      integer(4),       public, parameter   :: npolar = 16
-      integer(4),       public, parameter   :: nalpha = 1000
-      integer(4),       public, parameter   :: pmax   = 6
-      integer(4),       public, parameter   :: cmax   = 4
-      integer(4),       public, parameter   :: smax   = 500
-      integer(4),       public, parameter   :: maxs   = 5
-      integer(4),       public              :: sweeps
-      real(kind=rk),    public              :: pi
-      real(kind=rk),    public              :: mu(npolar)
-      real(kind=rk),    public              :: wgt(npolar)
-      real(kind=rk),    public              :: c(1:cmax)=(/0.8_rk,0.9_rk,0.99_rk,0.9999_rk/)
-      real(kind=rk),    public              :: rho(smax,cmax,pmax)
-      complex(kind=rk), public, allocatable :: um(:,:)
-      character(2),     public              :: sol
+      integer(4),       parameter   :: rk = kind(1.0d0)
+      integer(4),       parameter   :: npolar = 16
+      integer(4),       parameter   :: nalpha = 1000
+      integer(4),       parameter   :: pmax   = 6
+      integer(4),       parameter   :: cmax   = 4
+      integer(4),       parameter   :: jmax   = 500
+      integer(4),       parameter   :: maxs   = 4
+      integer(4)                    :: sweeps
+      integer(4)                    :: umax
+      real(kind=rk)                 :: pi
+      real(kind=rk)                 :: mu(npolar)
+      real(kind=rk)                 :: wgt(npolar)
+      real(kind=rk)                 :: c(1:cmax)=(/0.8_rk,0.9_rk,0.99_rk,0.9999_rk/)
+      real(kind=rk)                 :: rho(jmax,cmax,pmax)
+      character(2)                  :: sol
+      complex(kind=rk), allocatable :: um(:,:)
 
     end module global_data
 
@@ -26,21 +27,25 @@
 
       implicit none
 
-      integer(4) :: i
-      integer(4) :: j
+      integer(4)   :: i
+      integer(4)   :: j
+      real(4)      :: start
+      real(4)      :: finish
+      character(2) :: solopt(1:4)=(/'DD','SC','LD','LC'/)
 
       pi=2.0_rk*acos(0.0_rk)
 
-      do j=1,2
-        if (j == 1) then
-          sol='DD'
-        else
-          sol='SC'
-        endif
+      do j=1,4
+        sol=solopt(j)
         do i=1,maxs
           sweeps=i
+          call cpu_time(start)
           call spectral_radius
           call plot
+          call cpu_time(finish)
+          write(0,'(3a,i3,a,f6.3,a)') ' Finished Fourier Analysis for ', sol,   &
+                                      ' discretization and ', i, ' sweeps in ', &
+                                        (finish-start)/60.0,' minutes.'
         enddo
       enddo
 
@@ -48,14 +53,14 @@
 
     subroutine spectral_radius
 
-      use global_data, only: rk, pmax, cmax, smax, c, rho
+      use global_data, only: rk, pmax, cmax, jmax, c, rho
 
       implicit none
 
       integer(4)                 :: p
       integer(4)                 :: r
       integer(4)                 :: s
-      real(kind=rk)              :: sigt_h(smax,pmax)
+      real(kind=rk)              :: sigt_h(jmax,pmax)
       real(kind=rk)              :: del
 
       call set_quadrature
@@ -64,7 +69,7 @@
       rho=0.0_rk
       do p=1,pmax
         do r=1,cmax
-          do s=1,smax
+          do s=1,jmax
             del=sigt_h(s,p)*real(p,rk)
             call get_rho(p, del, c(r), sigt_h(s,p), rho(s,r,p))
           enddo
@@ -124,7 +129,7 @@
 
     subroutine set_sigt(sigt_h)
 
-      use global_data, only: rk, pmax, smax
+      use global_data, only: rk, pmax, jmax
 
       implicit none
 
@@ -132,13 +137,13 @@
       integer(4)                 :: s
       integer(4),    parameter   :: sm1=100
       real(kind=rk)              :: ds
-      real(kind=rk), intent(out) :: sigt_h(smax,pmax)
+      real(kind=rk), intent(out) :: sigt_h(jmax,pmax)
 
-      if (sm1 >= smax) stop ' Trouble in set_sigt, sm1 >= smax.'
+      if (sm1 >= jmax) stop ' Trouble in set_sigt, sm1 >= jmax.'
       sigt_h=0.0_rk
       do p=1,pmax
-        ds=log(100.0_rk)/real(smax-sm1,rk)
-        do s=1,smax 
+        ds=log(100.0_rk)/real(jmax-sm1,rk)
+        do s=1,jmax 
           if (s <= sm1) then
             sigt_h(s,p)=(1.0_rk/real(sm1,rk))*real(s,rk)
           else
@@ -151,10 +156,11 @@
 
     subroutine get_rho(p, del, c, sigt_h, rho)
 
-      use global_data, only: rk, nalpha, pi
+      use global_data, only: rk, nalpha, sol, umax, pi
 
       implicit none
 
+      integer(4)                 :: i
       integer(4),    intent(in)  :: p
       real(kind=rk)              :: alpha
       real(kind=rk)              :: eps
@@ -164,26 +170,32 @@
       real(kind=rk), intent(in)  :: c
       real(kind=rk), intent(out) :: rho
 
-      eps=epsilon(0.0_rk)
-      alpha=eps
-      do while(alpha*del <= pi)
-        call buildm(p, sigt_h, c, del, alpha)
-        call get_eigenvalue(p,omega)
+      if (sol == 'DD' .or. sol == 'SC') then
+        umax=p
+      elseif (sol == 'LD' .or. sol == 'LC') then
+        umax=2*p
+      endif
+
+      eps=0.00000000001_rk
+      alpha=eps/del
+      do i=1,nalpha+1
+        call buildm(p, umax, sigt_h, c, del, alpha)
+        call get_eigenvalue(umax,omega)
         rho=max(rho,omega)
-        alpha=alpha+((pi-eps)/del)/nalpha
+        alpha=i*((pi-eps)/nalpha)/del
       enddo
 
     end subroutine get_rho
 
-    subroutine buildm(p, sigt_h, c, del, alpha)
+    subroutine buildm(p, umax, sigt_h, c, del, alpha)
 
-      use global_data, only: rk, npolar, mu, um
+      use global_data, only: rk, npolar, mu
 
       implicit none
 
-      integer(4)                   :: i 
       integer(4)                   :: n
       integer(4),       intent(in) :: p
+      integer(4),       intent(in) :: umax
       real(kind=rk)                :: d
       real(kind=rk)                :: s
       real(kind=rk)                :: diffco
@@ -197,54 +209,48 @@
       complex(kind=rk)             :: am (p,p)
       complex(kind=rk)             :: bm (p,p)
       complex(kind=rk)             :: cm (p,p)
-      complex(kind=rk)             :: ab (p,p)
-      complex(kind=rk)             :: eye(p,p)
 
-      if (allocated(um)) deallocate(um)
-      allocate(um(p,p))
-      um=(0.0_rk,0.0_rk)
+      am =(0.0_rk,0.0_rk)
+      bm =(0.0_rk,0.0_rk)
+      cm =(0.0_rk,0.0_rk)
 
-      eye=(0.0_rk,0.0_rk)
-      do i=1,p
-        eye(i,i)=(1.0_rk,0.0_rk)
-      enddo 
+      call allocum(umax)
 
       do n=1,npolar
-        tau=sigt_h/abs(mu(n))
+        tau=sigt_h/mu(n)
         call get_beta(tau, beta)
-        if (mu(n) > 0.0_rk) then
-          d=(1.0_rk-beta)/2.0_rk
-          s=(1.0_rk+beta)/2.0_rk
-        else
-          s=(1.0_rk-beta)/2.0_rk
-          d=(1.0_rk+beta)/2.0_rk
-        endif
+        d=(1.0_rk-beta)/2.0_rk
+        s=(1.0_rk+beta)/2.0_rk
         call setmat(p, alpha, del, d, s, am)
         call invcmat(p, am)
-        if (mu(n) > 0.0_rk) then
-          d=-1.0_rk/tau
-          s= 1.0_rk/tau
-        else
-          s=-1.0_rk/tau
-          d= 1.0_rk/tau
-        endif
+        d=-1.0_rk/tau
+        s= 1.0_rk/tau
         call setmat(p, alpha, del, d, s, bm)
-        ab=MATMUL(bm,am)
-        ab=ab+eye
-        call invcmat(p, ab)
-        call addum(n, p, c, ab)
-        if (sol == 'LD' .or. sol == 'LC') then
-          d=3.0_rk/tau
-          call setmat(p, alpha, del, d, d, cm)
-        endif
+        d=3.0_rk/tau
+        call setmat(p, alpha, del, d, d, cm)
+        call fnlmat(n, p, umax, c, tau, beta, am, bm, cm)
       enddo
 
       diffco=1.0_rk/(3.0_rk*del)
       fhat=c*sigt_h/(2.0_rk*diffco*(1.0_rk-cos(alpha*del))+(1.0_rk-c)*del)
 
-      call fnlum(p, fhat)
+      call fnlum(umax, fhat)
 
     end subroutine buildm
+
+    subroutine allocum(umax)
+
+      use global_data, only: rk, um
+
+      implicit none
+
+      integer(4),    intent(in) :: umax
+
+      if (allocated(um)) deallocate(um)
+      allocate(um(umax,umax))
+      um=(0.0_rk,0.0_rk)
+
+    end subroutine allocum
 
     subroutine get_beta(tau, beta)
 
@@ -252,29 +258,56 @@
 
       implicit none
 
-      real(kind=rk)              :: tau3
-      real(kind=rk)              :: tau5
-      real(kind=rk)              :: tau7
       real(kind=rk), intent(in)  :: tau
       real(kind=rk), intent(out) :: beta
 
       if (sol == 'DD') then
         beta=0.0_rk
       elseif (sol == 'LD') then
-        beta=1.0_rk
+        beta=tau/abs(tau)
       else
-        if (tau < 0.01_rk) then
-          tau3=tau *tau*tau
-          tau5=tau3*tau*tau
-          tau7=tau5*tau*tau
-          beta=tau/6.0_rk-tau3/360.0_rk+tau5/15120.0_rk-tau7/604800.0_rk
-        else
-          beta=1.0_rk/tanh(tau/2.0_rk)-2.0_rk/tau
-        endif
+        beta=1.0_rk/tanh(tau/2.0_rk)-2.0_rk/tau
         if (sol == 'LC') beta=tau*beta/(tau-6.0_rk*beta)
       endif
 
     end subroutine get_beta
+
+    subroutine fnlmat(n, p, umax, c, tau, beta, am, bm, cm)
+
+      use global_data, only: rk, sol
+
+      implicit none
+      integer(4)                   :: i
+      integer(4),       intent(in) :: n
+      integer(4),       intent(in) :: p
+      integer(4),       intent(in) :: umax
+      real(kind=rk),    intent(in) :: c
+      real(kind=rk),    intent(in) :: tau
+      real(kind=rk),    intent(in) :: beta
+      complex(kind=rk)             :: eye(p,p)
+      complex(kind=rk)             :: mm (umax,umax)
+      complex(kind=rk), intent(in) :: am (p,p)
+      complex(kind=rk), intent(in) :: bm (p,p)
+      complex(kind=rk), intent(in) :: cm (p,p)
+
+      eye=(0.0_rk,0.0_rk)
+      do i=1,p
+        eye(i,i)=(1.0_rk,0.0_rk)
+      enddo 
+
+      if (sol == 'DD' .or. sol == 'SC') then
+        mm=MATMUL(bm,am)
+        mm=mm+eye
+      elseif (sol == 'LD' .or. sol == 'LC') then
+        mm(    1:p,    1:p)=MATMUL(bm,am)+eye
+        mm(    1:p,p+1:2*p)=beta*MATMUL(bm,am)
+        mm(p+1:2*p,    1:p)=MATMUL(cm,am)-6.0_rk/tau*eye
+        mm(p+1:2*p,p+1:2*p)=beta*MATMUL(cm,am)+eye
+      endif
+      call invcmat(umax, mm)
+      call addum(n, umax, c, mm)
+
+    end subroutine fnlmat
 
     subroutine setmat(m, alpha, del, d, s, a)
 
@@ -324,7 +357,7 @@
 
     end subroutine invcmat
 
-    subroutine addum(n, m, c, ab)
+    subroutine addum(n, m, c, a)
 
       use global_data, only: rk, wgt, um
 
@@ -335,11 +368,11 @@
       integer(4),       intent(in) :: n
       integer(4),       intent(in) :: m
       real(kind=rk),    intent(in) :: c
-      complex(kind=rk), intent(in) :: ab(m,m)
+      complex(kind=rk), intent(in) :: a(m,m)
 
       do i=1,m
         do j=1,m
-          um(i,j)=um(i,j)+0.5_rk*c*wgt(n)*ab(i,j)
+          um(i,j)=um(i,j)+0.5_rk*c*wgt(n)*a(i,j)
         enddo
       enddo
 
@@ -347,7 +380,7 @@
 
     subroutine fnlum(m, fhat)
 
-      use global_data, only: rk, sweeps, um
+      use global_data, only: rk, sweeps, sol, um
 
       implicit none
 
@@ -359,7 +392,13 @@
       complex(kind=rk)             :: um0(m,m)
       complex(kind=rk)             :: um1(m,m)
 
-      one=(1.0_rk,0.0_rk)
+      if (sol == 'DD' .or. sol == 'SC') then
+        one=(1.0_rk,0.0_rk)
+      elseif (sol == 'LD' .or. sol == 'LC') then
+        one=(0.0_rk,0.0_rk)
+        one(1:m/2,1:m/2)=(1.0_rk,0.0_rk)
+        one(m/2+1:m,1:m/2)=(0.0_rk,0.0_rk)
+      endif
 
       if (sweeps == 1) then
         eye=(0.0_rk,0.0_rk)
@@ -409,7 +448,7 @@
 
     subroutine plot
 
-      use global_data, only: rk, pmax, cmax, smax, sweeps, rho, sol
+      use global_data, only: rk, pmax, cmax, jmax, sweeps, rho, sol
 
       implicit none
 
@@ -418,7 +457,7 @@
       integer(4)                :: k
       integer(4)                :: dun=1
       integer(4)                :: pun=2
-      real(kind=rk)             :: sigt_h(smax,pmax)
+      real(kind=rk)             :: sigt_h(jmax,pmax)
       character(1)              :: p
       character(1)              :: s
       character(2)              :: cols
@@ -439,7 +478,7 @@
         write(caserun,'(a)') '-p' // trim(adjustl(p)) // '-s' // trim(adjustl(s)) // '-' // sol
         write(datafile,'(a)') 'result' // trim(adjustl(caserun)) // '.dat'
         open(unit=dun,file=datafile,action='write',status='unknown')
-        do i=1,smax
+        do i=1,jmax
           write(dun,datfmt) sigt_h(i,k),(rho(i,j,k),j=1,cmax)
         enddo
         close(dun)
