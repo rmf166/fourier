@@ -1,9 +1,6 @@
 *.mod
 *.o
-src/*.F90
 *.exe
-src/
-test/
 *.un~
 *.upd
 .nfs*
