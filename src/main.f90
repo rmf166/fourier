@@ -397,7 +397,6 @@
       elseif (sol == 'LD' .or. sol == 'LC') then
         one=(0.0_rk,0.0_rk)
         one(1:m/2,1:m/2)=(1.0_rk,0.0_rk)
-        one(m/2+1:m,1:m/2)=(0.0_rk,0.0_rk)
       endif
 
       if (sweeps == 1) then
