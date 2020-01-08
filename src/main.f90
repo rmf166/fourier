@@ -11,6 +11,7 @@
       integer(4),       parameter   :: maxs   = 4
       integer(4)                    :: sweeps
       integer(4)                    :: umax
+      logical(4)                    :: linpro
       real(kind=rk)                 :: pi
       real(kind=rk)                 :: mu(npolar)
       real(kind=rk)                 :: wgt(npolar)
@@ -23,29 +24,34 @@
 
     program fourier_analysis
 
-      use global_data, only: rk, maxs, sweeps, pi, sol
+      use global_data, only: rk, maxs, sweeps, linpro, pi, sol
 
       implicit none
 
       integer(4)   :: i
       integer(4)   :: j
+      integer(4)   :: k
       real(4)      :: start
       real(4)      :: finish
       character(2) :: solopt(1:4)=(/'DD','SC','LD','LC'/)
 
       pi=2.0_rk*acos(0.0_rk)
 
-      do j=1,4
-        sol=solopt(j)
-        do i=1,maxs
-          sweeps=i
-          call cpu_time(start)
-          call spectral_radius
-          call plot
-          call cpu_time(finish)
-          write(0,'(3a,i3,a,f6.3,a)') ' Finished Fourier Analysis for ', sol,   &
-                                      ' discretization and ', i, ' sweeps in ', &
-                                        (finish-start)/60.0,' minutes.'
+      do k=1,2
+        linpro=.false.
+        if (k == 2) linpro=.true.
+        do j=1,4
+          sol=solopt(j)
+          do i=1,maxs
+            sweeps=i
+            call cpu_time(start)
+            call spectral_radius
+            call plot
+            call cpu_time(finish)
+            write(0,'(3a,i3,a,f6.3,a)') ' Finished Fourier Analysis for ', sol,   &
+                                        ' discretization and ', i, ' sweeps in ', &
+                                          (finish-start)/60.0,' minutes.'
+          enddo
         enddo
       enddo
 
@@ -234,7 +240,7 @@
       diffco=1.0_rk/(3.0_rk*del)
       fhat=c*sigt_h/(2.0_rk*diffco*(1.0_rk-cos(alpha*del))+(1.0_rk-c)*del)
 
-      call fnlum(umax, fhat)
+      call fnlum(umax, fhat, alpha, del, p)
 
     end subroutine buildm
 
@@ -378,25 +384,43 @@
 
     end subroutine addum
 
-    subroutine fnlum(m, fhat)
+    subroutine fnlum(m, fhat, alpha, del, p)
 
-      use global_data, only: rk, sweeps, sol, um
+      use global_data, only: rk, sweeps, sol, linpro, um
 
       implicit none
 
       integer(4)                   :: i
       integer(4),       intent(in) :: m
+      integer(4),       intent(in) :: p
       real(kind=rk),    intent(in) :: fhat
+      real(kind=rk),    intent(in) :: del
+      real(kind=rk),    intent(in) :: alpha
+      complex(kind=rk)             :: arg
+      complex(kind=rk)             :: expp
+      complex(kind=rk)             :: expm
       complex(kind=rk)             :: one(m,m)
       complex(kind=rk)             :: eye(m,m)
       complex(kind=rk)             :: um0(m,m)
       complex(kind=rk)             :: um1(m,m)
+      complex(kind=rk)             :: vee(m,m)
 
       if (sol == 'DD' .or. sol == 'SC') then
         one=(1.0_rk,0.0_rk)
       elseif (sol == 'LD' .or. sol == 'LC') then
         one=(0.0_rk,0.0_rk)
         one(1:m/2,1:m/2)=(1.0_rk,0.0_rk)
+      endif
+
+      if (linpro) then
+        vee=(0.0_rk,0.0_rk)
+        arg=cmplx(0.0_rk,alpha*del,rk)
+        expp=exp(arg)
+        expm=exp(-arg)
+        do i=1,p
+          vee(i,i)=0.5_rk*(1.0_rk+expm+(1.0_rk/p)*(i-0.5_rk)*(expp-expm))
+        enddo
+        one=MATMUL(vee,one)
       endif
 
       if (sweeps == 1) then
@@ -447,7 +471,7 @@
 
     subroutine plot
 
-      use global_data, only: rk, pmax, cmax, jmax, sweeps, rho, sol
+      use global_data, only: rk, pmax, cmax, jmax, sweeps, linpro, rho, sol
 
       implicit none
 
@@ -460,10 +484,10 @@
       character(1)              :: p
       character(1)              :: s
       character(2)              :: cols
-      character(9)              :: caserun
-      character(19)             :: datafile
-      character(15)             :: plotfile
-      character(17)             :: pdf_file
+      character(10)             :: caserun
+      character(20)             :: datafile
+      character(16)             :: plotfile
+      character(18)             :: pdf_file
       character(132)            :: datfmt 
 
       call set_sigt(sigt_h)
@@ -474,7 +498,11 @@
       do k=1,pmax
         write(p,'(i1)') k
         write(s,'(i1)') sweeps
-        write(caserun,'(a)') '-p' // trim(adjustl(p)) // '-s' // trim(adjustl(s)) // '-' // sol
+        if (linpro) then
+          write(caserun,'(a)') '-lp' // trim(adjustl(p)) // '-s' // trim(adjustl(s)) // '-' // sol
+        else
+          write(caserun,'(a)') '-p' // trim(adjustl(p)) // '-s' // trim(adjustl(s)) // '-' // sol
+        endif
         write(datafile,'(a)') 'result' // trim(adjustl(caserun)) // '.dat'
         open(unit=dun,file=datafile,action='write',status='unknown')
         do i=1,jmax
@@ -490,16 +518,20 @@
         write(pun,'(a)') 'unset label                            # remove any previous labels'
         write(pun,'(a)') 'set xtic auto                          # set xtics automatically'
         write(pun,'(a)') 'set ytic auto                          # set ytics automatically'
-        write(pun,'(a)') 'set title "' // sol // ', p = ' // p // ', s = ' // s // '"'
+        if (linpro) then
+          write(pun,'(a)') 'set title "' // sol // '(lp), p = ' // p // ', s = ' // s // '"'
+        else
+          write(pun,'(a)') 'set title "' // sol // ', p = ' // p // ', s = ' // s // '"'
+        endif
         write(pun,'(a)') 'set xlabel "{/Symbol D} (mfp)" enhanced'
         write(pun,'(a)') 'set ylabel "{/Symbol r}" enhanced'
         write(pun,'(a)') 'set yr [0:1]'
-        write(pun,'(a)') 'plot    "' // datafile // '" using 1:2 title "c=0.8"  with lines , \'
-        write(pun,'(a)') '        "' // datafile // '" using 1:3 title "c=0.9"  with lines , \'
-        write(pun,'(a)') '        "' // datafile // '" using 1:4 title "c=0.99" with lines , \'
-        write(pun,'(a)') '        "' // datafile // '" using 1:5 title "c=1.00" with lines'
+        write(pun,'(a)') 'plot    "' // trim(adjustl(datafile)) // '" using 1:2 title "c=0.8"  with lines , \'
+        write(pun,'(a)') '        "' // trim(adjustl(datafile)) // '" using 1:3 title "c=0.9"  with lines , \'
+        write(pun,'(a)') '        "' // trim(adjustl(datafile)) // '" using 1:4 title "c=0.99" with lines , \'
+        write(pun,'(a)') '        "' // trim(adjustl(datafile)) // '" using 1:5 title "c=1.00" with lines'
         write(pun,'(a)') 'set terminal pdfcairo enhanced color dashed'
-        write(pun,'(a)') 'set output "' // pdf_file  // '"'
+        write(pun,'(a)') 'set output "' // trim(adjustl(pdf_file))  // '"'
         write(pun,'(a)') 'replot'
         write(pun,'(a)') 'set terminal x11'
         close(pun)
