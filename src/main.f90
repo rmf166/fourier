@@ -442,6 +442,44 @@
 
     end subroutine fnlum
 
+    subroutine get_dcor(del,npolar,mu,wgt,dcor)
+
+      use global_data, only: rk
+
+      implicit none
+
+      integer(4),    intent(in)  :: npolar
+      real(kind=rk), intent(in)  :: del
+      real(kind=rk), intent(in)  :: mu(npolar)
+      real(kind=rk), intent(in)  :: wgt(npolar)
+      real(kind=rk), intent(out) :: dcor
+
+      integer(4)                 :: m
+      real(kind=rk)              :: tau
+      real(kind=rk)              :: tau3
+      real(kind=rk)              :: tau5
+      real(kind=rk)              :: tau7
+      real(kind=rk)              :: alfa
+      real(kind=rk)              :: rho
+
+      dcor=0.0_rk
+      rho =0.0_rk
+      do m=1,npolar/2
+        tau=del/mu(m)
+        if (tau < 0.01_rk) then
+          tau3=tau *tau*tau
+          tau5=tau3*tau*tau
+          tau7=tau5*tau*tau
+          alfa=tau/6.0_rk-tau3/360.0_rk+tau5/15120.0_rk-tau7/604800.0_rk
+        else
+          alfa=1.0_rk/tanh(tau/2.0_rk)-2.0_rk/tau
+        endif
+        rho=rho+mu(m)*wgt(m)*alfa
+      enddo
+      dcor=0.5_rk*rho
+
+    end subroutine get_dcor
+
     subroutine get_eigenvalue(m,omega)
 
       use global_data, only: rk, um
