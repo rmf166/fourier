@@ -567,7 +567,7 @@
         write(pun,'(a)') 'plot    "' // trim(adjustl(datafile)) // '" using 1:2 title "c=0.8"  with lines , \'
         write(pun,'(a)') '        "' // trim(adjustl(datafile)) // '" using 1:3 title "c=0.9"  with lines , \'
         write(pun,'(a)') '        "' // trim(adjustl(datafile)) // '" using 1:4 title "c=0.99" with lines , \'
-        write(pun,'(a)') '        "' // trim(adjustl(datafile)) // '" using 1:5 title "c=1.00" with lines'
+        write(pun,'(a)') '        "' // trim(adjustl(datafile)) // '" using 1:5 title "c=0.9999" with lines'
         write(pun,'(a)') 'set terminal pdfcairo enhanced color dashed'
         write(pun,'(a)') 'set output "' // trim(adjustl(pdf_file))  // '"'
         write(pun,'(a)') 'replot'
