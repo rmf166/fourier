@@ -34,7 +34,7 @@ do
           echo 'set title "p = '${prb}', c = 0.9999, s = '${sw}'"' >> plot.p
         fi
       fi
-      echo 'set xlabel "{/Symbol t} (mfp)" enhanced' >> plot.p
+      echo 'set xlabel "{/Symbol s_T}h" enhanced' >> plot.p
       echo 'set ylabel "{/Symbol r}" enhanced' >> plot.p
       echo 'set yr [0:1]' >> plot.p
       echo 'set xr [0.01:100]' >> plot.p

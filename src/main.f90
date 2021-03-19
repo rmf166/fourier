@@ -561,7 +561,7 @@
         else
           write(pun,'(a)') 'set title "' // sol // ', p = ' // p // ', s = ' // s // '"'
         endif
-        write(pun,'(a)') 'set xlabel "{/Symbol D} (mfp)" enhanced'
+        write(pun,'(a)') 'set xlabel "{/Symbol s_T}h" enhanced'
         write(pun,'(a)') 'set ylabel "{/Symbol r}" enhanced'
         write(pun,'(a)') 'set yr [0:1]'
         write(pun,'(a)') 'plot    "' // trim(adjustl(datafile)) // '" using 1:2 title "c=0.8"  with lines , \'
