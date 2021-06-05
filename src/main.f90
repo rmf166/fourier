@@ -55,7 +55,7 @@
         enddo
       enddo
 
-    contains
+    end program fourier_analysis
 
     subroutine spectral_radius
 
@@ -576,5 +576,3 @@
       enddo
 
     end subroutine plot
-
-    end program fourier_analysis
